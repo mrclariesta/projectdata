@@ -1,4 +1,4 @@
-import streamlit as st
+sionimport streamlit as st
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -26,7 +26,7 @@ MODEL_PATH_PREFIX = 'model_'
 # --- Load Data ---
 st.header("1. Data Loading & Preprocessing")
 
-data_file_path = 'FuelConsumption.csv' 
+data_file_path = 'emission.csv' 
 
 @st.cache_data 
 def load_data(path):
