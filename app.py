@@ -13,6 +13,68 @@ import statsmodels.api as sm
 import joblib
 import os # Pastikan ini diimpor
 
+# Pastikan ini ada di bagian atas app.py Anda, setelah semua import
+# ... (setelah semua import library) ...
+
+# --- CACHED FUNCTIONS FOR LOADING RESOURCES ---
+
+@st.cache_data
+def load_data(path):
+    try:
+        data = pd.read_csv(path)
+        return data
+    except FileNotFoundError:
+        st.error(f"File data tidak ditemukan di: {path}. Harap pastikan file ada di repositori.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Terjadi kesalahan saat memuat file: {e}")
+        st.stop()
+
+# PASTIKAN FUNGSI INI ADA DI app.py ANDA!
+@st.cache_resource
+def load_preprocessors_and_available_models(scaler_path, encoders_path, model_prefix):
+    loaded_scaler = None
+    loaded_label_encoders = None
+    available_models_list = []
+
+    try:
+        loaded_scaler = joblib.load(scaler_path)
+        loaded_label_encoders = joblib.load(encoders_path)
+        
+        # Cari model yang tersedia di direktori
+        for f in os.listdir('.'):
+            if f.startswith(model_prefix) and f.endswith('.pkl'):
+                available_models_list.append(f.replace(model_prefix, '').replace('.pkl', ''))
+        
+        if not available_models_list:
+            st.warning("Tidak ada file model .pkl yang ditemukan di repositori.")
+
+        return loaded_scaler, loaded_label_encoders, available_models_list
+    except FileNotFoundError:
+        st.error("File preprocessor (.pkl) tidak ditemukan. Harap pastikan Anda telah melatih model secara offline dan mengunggah file .pkl ke repositori.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error memuat sumber daya: {e}. Pastikan file .pkl tidak rusak atau terjadi masalah kompatibilitas.")
+        st.stop()
+
+# PASTIKAN FUNGSI INI ADA DI app.py ANDA!
+@st.cache_resource
+def load_trained_model(model_name):
+    # Model path seperti yang didefinisikan secara global
+    model_path = f"{MODEL_PATH_PREFIX}{model_name.replace(' ', '_')}.pkl" 
+    try:
+        if os.path.exists(model_path):
+            model = joblib.load(model_path)
+            return model
+        else:
+            st.error(f"Model '{model_name}' tidak ditemukan di {model_path}. Harap pastikan Anda telah melatih model ini secara offline dan mengunggah file .pkl ke repositori.")
+            st.stop() # Hentikan eksekusi jika model tidak ditemukan
+    except Exception as e:
+        st.error(f"Gagal memuat model '{model_name}': {e}. Pastikan file .pkl tidak rusak.")
+        st.stop()
+
+# ... (lanjutkan dengan kode aplikasi Anda seperti biasa) ...
+
 st.set_page_config(layout="wide")
 
 st.title("Vehicle Emission Prediction Dashboard")
