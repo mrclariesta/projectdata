@@ -16,7 +16,7 @@ import os
 st.set_page_config(layout="wide")
 
 st.title("Vehicle Emission Prediction Dashboard")
-st.markdown("Dibuat oleh: **Marcel Ariesta**")
+st.markdown("Dibuat oleh: Marcel Ariesta")
 st.markdown("---")
 
 # --- GLOBAL VARIABLES & PATHS FOR PKL FILES ---
