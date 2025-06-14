@@ -406,112 +406,101 @@ else: # Jika available_models kosong (tidak ada model .pkl yang ditemukan)
     st.info("Tidak ada model yang tersedia untuk evaluasi. Harap pastikan file .pkl sudah terunggah di repositori.")
 
 
-# --- 5. Make a New Prediction (Interaktif) ---
+# --- 5. Buat Prediksi Baru (Interaktif) ---
 st.markdown("---")
 st.header("5. Buat Prediksi Baru")
 
-# Periksa apakah scaler, encoders, dan ada model yang tersedia untuk prediksi
-if scaler is not None and encoders is not None and available_models and X_train_cols_order: # Line 336
+# Periksa apakah semua komponen siap untuk prediksi
+if scaler is not None and encoders is not None and available_models and X_train_cols_order:
     model_to_predict_with = st.selectbox(
         "Pilih Model untuk Prediksi Interaktif:",
         options=available_models,
         key='predict_model_select'
     )
-    loaded_model_predict = load_trained_model(model_to_predict_with, MODEL_PATH_PREFIX) # Teruskan MODEL_PATH_PREFIX
+    loaded_model_predict = load_trained_model(model_to_predict_with, MODEL_PATH_PREFIX)
 
     if loaded_model_predict:
-        st.write("Masukkan nilai fitur untuk mendapatkan prediksi emisi CO2:")
+        st.write("Pilih kombinasi kendaraan untuk mendapatkan prediksi emisi CO2:")
 
-        col_input1, col_input2, col_input3 = st.columns(3)
+        # --- BAGIAN YANG DIUBAH: Menggunakan Dependent Dropdowns ---
+        col1, col2 = st.columns(2)
+        
+        # Ambil daftar unik dari DataFrame asli yang sudah dimuat di awal
+        makes = sorted(df_original['Make'].unique())
+        selected_make = col1.selectbox("Pilih Merek Mobil:", options=makes, key='pred_make')
 
-        # Options for selectboxes from the original loaded df
-        make_options = df_original['Make'].unique().tolist()
-        transmission_options = df_original['Transmission'].unique().tolist()
-        fuel_type_options = df_original['Fuel Type'].unique().tolist()
-        vehicle_class_options = df_original['Vehicle Class'].unique().tolist()
+        # Filter model berdasarkan merek yang dipilih
+        models = sorted(df_original[df_original['Make'] == selected_make]['Model'].unique())
+        selected_model = col2.selectbox("Pilih Model Mobil:", options=models, key='pred_model')
+        
+        # Buat filter sementara untuk mendapatkan opsi yang relevan
+        df_filtered_options = df_original[(df_original['Make'] == selected_make) & (df_original['Model'] == selected_model)]
 
-        with col_input1:
-            input_make = st.selectbox('Merk Mobil', options=make_options, key='input_make_pred')
-            
-            # Dynamic Model selection based on Make
-            filtered_models = df_original[df_original['Make'] == input_make]['Model'].unique().tolist() if input_make else []
-            input_model = st.selectbox('Tipe Mobil', options=filtered_models, key='input_model_pred')
-            input_engine_size = st.number_input('Ukuran Mesin (L)', min_value=0.5, max_value=8.0, value=2.0, step=0.1, key='input_engine_size_pred')
+        col3, col4 = st.columns(2)
 
-        with col_input2:
-            input_cylinders = st.number_input('Jumlah Silinder', min_value=3, max_value=12, value=4, step=1, key='input_cylinders_pred')
-            input_transmission = st.selectbox('Transmisi', options=transmission_options, key='input_transmission_pred')
-            input_fuel_type = st.selectbox('Tipe Bahan Bakar', options=fuel_type_options, key='input_fuel_type_pred')
+        transmissions = sorted(df_filtered_options['Transmission'].unique())
+        selected_transmission = col3.selectbox("Pilih Transmisi:", options=transmissions, key='pred_transmission')
 
-        with col_input3:
-            input_vehicle_class = st.selectbox('Kelas Kendaraan', options=vehicle_class_options, key='input_vehicle_class_pred')
-            # Tambahkan input untuk kolom Fuel Consumption karena sekarang mereka adalah fitur
-            input_fuel_city = st.number_input('Konsumsi BBM Kota (L/100km)', min_value=1.0, max_value=50.0, value=10.0, step=0.1, key='input_fuel_city_pred')
-            input_fuel_hwy = st.number_input('Konsumsi BBM Tol (L/100km)', min_value=1.0, max_value=40.0, value=8.0, step=0.1, key='input_fuel_hwy_pred')
-            input_fuel_comb_l = st.number_input('Konsumsi BBM Gabungan (L/100km)', min_value=1.0, max_value=45.0, value=9.0, step=0.1, key='input_fuel_comb_l_pred')
-            input_fuel_comb_mpg = st.number_input('Konsumsi BBM Gabungan (mpg)', min_value=5.0, max_value=80.0, value=25.0, step=0.1, key='input_fuel_comb_mpg_pred')
+        fuel_types = sorted(df_filtered_options[df_filtered_options['Transmission'] == selected_transmission]['Fuel Type'].unique())
+        selected_fuel_type = col4.selectbox("Pilih Tipe Bahan Bakar:", options=fuel_types, key='pred_fuel')
 
         if st.button("Dapatkan Prediksi"):
-            try:
-                # Membuat dictionary input mentah dari user
-                # Pastikan semua kunci ini sesuai dengan X_train_cols_order (setelah preprocessing)
-                raw_input_data = {
-                    'Engine Size(L)': input_engine_size,
-                    'Cylinders': input_cylinders,
-                    'Transmission': input_transmission,
-                    'Fuel Type': input_fuel_type,
-                    'Vehicle Class': input_vehicle_class,
-                    'Fuel Consumption (City (L/100 km))': input_fuel_city,
-                    'Fuel Consumption (Hwy (L/100 km))': input_fuel_hwy,
-                    'Fuel Consumption (Comb (L/100 km))': input_fuel_comb_l,
-                    'Fuel Consumption (Comb (mpg))': input_fuel_comb_mpg,
-                }
-                input_df_raw = pd.DataFrame([raw_input_data])
-                
-                # --- Replikasi Preprocessing untuk Input Prediksi ---
+            # Cari baris yang cocok di DataFrame asli
+            input_row = df_original[
+                (df_original['Make'] == selected_make) &
+                (df_original['Model'] == selected_model) &
+                (df_original['Transmission'] == selected_transmission) &
+                (df_original['Fuel Type'] == selected_fuel_type)
+            ]
 
-                # 1. Scaling Fitur (MinMaxScaler) pada input MENTAH (sebelum outlier)
-                # Gunakan 'numerical_cols_for_scaler_fit' dari bagian preprocessing utama
-                # untuk memastikan kolom yang sama diskalakan.
-                numerical_cols_for_input_scaling = [col for col in numerical_cols_temp if col in input_df_raw.columns] # Pastikan hanya kolom numerik yang ada di input_df_raw
-                if scaler and len(numerical_cols_for_input_scaling) > 0:
-                    input_df_raw[numerical_cols_for_input_scaling] = scaler.transform(input_df_raw[numerical_cols_for_input_scaling])
-                else:
-                    st.warning("Input numerik tidak diskalakan karena scaler tidak valid atau tidak ada kolom numerik.")
+            if not input_row.empty:
+                # Ambil baris data pertama yang cocok
+                input_features_raw = input_row.iloc[[0]]
+                actual_emission = input_features_raw[target_column_name].values[0]
+                
+                # Buat salinan untuk diproses
+                input_df_processed = input_features_raw.copy()
 
-                # 2. Outlier Cleansing (IQR) - Replikasikan logika ini untuk input tunggal
-                st.info("Catatan: Pembersihan outlier (IQR) pada input tunggal tidak menghapus baris. Diasumsikan input dalam rentang wajar.")
-                # Anda bisa menambahkan clipping di sini jika nilai input di luar batas Q1-1.5IQR atau Q3+1.5IQR.
-                
-                # 3. Label Encoding
-                for col_name, encoder in encoders.items():
-                    if col_name in input_df_raw.columns: # Hanya jika kolom ada di input
-                        if input_df_raw[col_name].iloc[0] not in encoder.classes_:
-                            st.error(f"Kategori '{input_df_raw[col_name].iloc[0]}' di kolom '{col_name}' tidak dikenali oleh model. Harap pilih dari daftar yang tersedia dari data pelatihan.")
-                            st.stop()
-                        input_df_raw[col_name] = encoder.transform(input_df_raw[col_name])
-                
-                # 4. Pastikan urutan kolom sesuai dengan X_train_cols_order
-                final_input_df = pd.DataFrame(columns=X_train_cols_order)
-                for col in X_train_cols_order:
-                    if col in input_df_raw.columns:
-                        final_input_df[col] = input_df_raw[col]
-                    else:
-                        final_input_df[col] = 0 # Default untuk fitur yang tidak diinput
-                
-                # Lakukan prediksi
-                prediction = loaded_model_predict.predict(final_input_df)
-                
-                st.success("Prediksi Emisi CO2:")
-                st.write(f"**{prediction[0]:.2f} g/km**")
-                
-            except Exception as e:
-                st.error(f"Gagal membuat prediksi: {e}.")
-                st.write("Pastikan semua input valid dan preprocessing benar.")
-                st.write("Debug Info:")
-                st.write(f"Input DataFrame (before final processing): {input_df_raw}")
-                st.write(f"Expected X_train columns: {X_train_cols_order}")
+                try:
+                    # --- Replikasi Preprocessing untuk Input yang Dicari ---
+
+                    # 1. Label Encoding menggunakan encoder yang sudah dimuat
+                    for col_name, encoder in encoders.items():
+                        if col_name in input_df_processed.columns:
+                            # Pastikan nilai yang dipilih ada di dalam kelas encoder
+                            if input_df_processed[col_name].iloc[0] not in encoder.classes_:
+                                st.error(f"Kategori '{input_df_processed[col_name].iloc[0]}' di kolom '{col_name}' tidak dikenali oleh model. Ini mungkin terjadi jika kategori ini tidak ada di data training.")
+                                st.stop()
+                            input_df_processed[col_name] = encoder.transform(input_df_processed[col_name])
+
+                    # 2. Scaling Fitur Numerik menggunakan scaler yang sudah dimuat
+                    # 'numerical_cols_temp' harus sama dengan yang digunakan saat training
+                    numerical_cols_for_input_scaling = [col for col in numerical_cols_temp if col in input_df_processed.columns]
+                    if scaler and numerical_cols_for_input_scaling:
+                        input_df_processed[numerical_cols_for_input_scaling] = scaler.transform(input_df_processed[numerical_cols_for_input_scaling])
+
+                    # 3. Pastikan urutan kolom SESUAI DENGAN X_train_cols_order
+                    # Ini adalah langkah paling krusial
+                    final_input_df = input_df_processed[X_train_cols_order]
+                    
+                    # Lakukan prediksi
+                    prediction = loaded_model_predict.predict(final_input_df)
+                    
+                    # Tampilkan hasil
+                    st.success("Prediksi Berhasil!")
+                    res_col1, res_col2 = st.columns(2)
+                    res_col1.metric("Nilai Emisi Aktual (dari data)", f"{actual_emission:.2f} g/km")
+                    res_col2.metric("Nilai Emisi Prediksi (oleh model)", f"{prediction[0]:.2f} g/km", delta=f"{prediction[0] - actual_emission:.2f}")
+
+                except Exception as e:
+                    st.error(f"Gagal membuat prediksi: {e}")
+                    st.write("Pastikan preprocessor (.pkl) yang diunggah cocok dengan data yang digunakan.")
+                    st.write("Debug Info (Data setelah dicari):")
+                    st.dataframe(input_features_raw)
+
+            else:
+                st.error("Kombinasi kendaraan yang Anda pilih tidak ditemukan dalam dataset.")
     else:
         st.info("Silakan pilih model untuk prediksi interaktif.")
 else:
-    st.info("Model atau preprocessor belum siap untuk prediksi. Harap pastikan file .pkl sudah terunggah di repositori dan pemrosesan data utama selesai.")
+    st.info("Model atau preprocessor belum siap untuk prediksi. Pastikan file .pkl sudah terunggah di repositori dan pemrosesan data utama selesai.")
