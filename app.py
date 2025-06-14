@@ -84,6 +84,23 @@ df = load_data(DATA_FILE_PATH)
 df_original = df.copy()
 target_column_name = 'CO2 Emissions(g/km)' 
 
+### BAGIAN DATA LOADING DITAMBAHKAN KEMBALI ###
+st.subheader("Tampilan Awal Data")
+st.info(f"Data dari '{DATA_FILE_PATH}' berhasil dimuat. Menampilkan 5 baris pertama:")
+st.dataframe(df.head())
+st.markdown("---")
+
+### PLOT DISTRIBUSI CO2 DITAMBAHKAN KEMBALI ###
+st.subheader(f"Distribusi Emisi CO2")
+fig_dist_co2, ax_dist_co2 = plt.subplots(figsize=(10, 6))
+sns.histplot(df_original[target_column_name], kde=True, ax=ax_dist_co2, bins=30)
+ax_dist_co2.set_title(f"Distribusi '{target_column_name}'")
+ax_dist_co2.set_xlabel(target_column_name)
+ax_dist_co2.set_ylabel("Frekuensi")
+st.pyplot(fig_dist_co2)
+st.markdown("---")
+
+
 if 'Make' in df.columns and target_column_name in df.columns:
     st.subheader(f"Perbandingan Emisi CO2 Rata-rata per Merek")
     num_common_makes = st.slider(
@@ -99,10 +116,9 @@ if 'Make' in df.columns and target_column_name in df.columns:
     ax_make_co2.set_title(f"Rata-rata Emisi CO2 per {num_common_makes} Merek Mobil Teratas")
     plt.xticks(rotation=45, ha='right')
     st.pyplot(fig_make_co2)
+    st.markdown("---")
 
-### HEATMAP KORELASI DITAMBAHKAN DI SINI ###
 st.subheader("Heatmap Korelasi Antar Fitur Numerik")
-# Pilih hanya kolom numerik dari dataframe asli untuk heatmap yang intuitif
 numeric_df = df_original.select_dtypes(include=np.number)
 correlation_matrix = numeric_df.corr()
 fig_corr, ax_corr = plt.subplots(figsize=(12, 10))
@@ -113,8 +129,6 @@ st.markdown("---")
 
 
 # --- 2. Preprocessing & Splitting (Proses Latar Belakang) ---
-# Bagian ini tidak ditampilkan secara eksplisit untuk menjaga UI tetap bersih,
-# namun prosesnya penting untuk evaluasi dan prediksi.
 df_processed = df.copy()
 columns_to_drop = ['Model', 'Make']
 df_processed = df_processed.drop(columns=[col for col in columns_to_drop if col in df_processed.columns], errors='ignore')
@@ -165,7 +179,7 @@ if available_models:
         col3.metric("Root Mean Squared Error (RMSE)", f"{metrics['rmse']:.4f}")
         st.markdown("---")
 
-        # --- 4. Visualisasi Hasil Model (DIUBAH MENGGUNAKAN TABS) ---
+        # --- 4. Visualisasi Hasil Model ---
         st.header("4. Visualisasi Hasil Model")
         
         viz_tab1, viz_tab2, viz_tab3 = st.tabs(["📊 Aktual vs. Prediksi", "🔍 Analisis Residual", "💡 Pentingnya Fitur"])
