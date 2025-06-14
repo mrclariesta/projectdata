@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import statsmodels.api as sm
 import joblib
-import os
+import os # Pastikan ini diimpor
 
 st.set_page_config(layout="wide")
 
@@ -39,30 +39,29 @@ def load_data(path):
         st.stop()
 
 @st.cache_resource
-def load_preprocessors(scaler_path, encoders_path):
+def load_preprocessors_and_available_models(scaler_path, encoders_path, model_prefix):
+    loaded_scaler = None
+    loaded_label_encoders = None
+    available_models_list = []
+
     try:
         loaded_scaler = joblib.load(scaler_path)
         loaded_label_encoders = joblib.load(encoders_path)
-        return loaded_scaler, loaded_label_encoders
-    except FileNotFoundError:
-        st.error("File preprocessor (scaler.pkl atau label_encoders.pkl) tidak ditemukan. Harap pastikan Anda telah melatih model secara offline dan mengunggah file .pkl ke repositori.")
-        st.stop()
-    except Exception as e:
-        st.error(f"Error memuat preprocessor: {e}. Pastikan file .pkl tidak rusak.")
-        st.stop()
+        
+        # Cari model yang tersedia di direktori
+        for f in os.listdir('.'):
+            if f.startswith(model_prefix) and f.endswith('.pkl'):
+                available_models_list.append(f.replace(model_prefix, '').replace('.pkl', ''))
+        
+        if not available_models_list:
+            st.warning("Tidak ada file model .pkl yang ditemukan di repositori.")
 
-@st.cache_resource
-def load_trained_model(model_name):
-    model_path = f"{MODEL_PATH_PREFIX}{model_name.replace(' ', '_')}.pkl" # Menangani spasi di nama model
-    try:
-        if os.path.exists(model_path):
-            model = joblib.load(model_path)
-            return model
-        else:
-            st.error(f"Model '{model_name}' tidak ditemukan di {model_path}. Harap pastikan Anda telah melatih model ini secara offline dan mengunggah file .pkl ke repositori.")
-            st.stop() # Hentikan eksekusi jika model tidak ditemukan
+        return loaded_scaler, loaded_label_encoders, available_models_list
+    except FileNotFoundError:
+        st.error("File preprocessor (.pkl) tidak ditemukan. Harap pastikan Anda telah melatih model secara offline dan mengunggah file .pkl ke repositori.")
+        st.stop()
     except Exception as e:
-        st.error(f"Gagal memuat model '{model_name}': {e}. Pastikan file .pkl tidak rusak.")
+        st.error(f"Error memuat sumber daya: {e}. Pastikan file .pkl tidak rusak atau terjadi masalah kompatibilitas.")
         st.stop()
 
 # --- 1. Data Loading & Preprocessing ---
@@ -80,14 +79,11 @@ else:
     st.info(f"Menggunakan '{target_column_name}' sebagai kolom target.")
 
 # --- Bagian Data Preprocessing (untuk mendapatkan X_train_cols_order) ---
-# Bagian ini HARUS mereplikasi persis alur preprocessing dari notebook Anda
-# Termasuk urutan MinMaxScaling sebelum Outlier Cleansing jika itu yang Anda lakukan
-# Namun, scaler dan encoders yang digunakan di sini adalah yang DI-LOAD dari PKL, BUKAN di-fit ulang
 st.subheader("Detail Preprocessing Data (Berdasarkan model yang dilatih offline)")
 
-# Load preprocessors saat aplikasi dimulai
-scaler, encoders = load_preprocessors(SCALER_PATH, LABEL_ENCODERS_PATH)
-st.success("Scaler dan LabelEncoders berhasil dimuat.")
+# Load preprocessors dan daftar model yang tersedia di awal
+scaler, encoders, available_models = load_preprocessors_and_available_models(SCALER_PATH, LABEL_ENCODERS_PATH, MODEL_PATH_PREFIX)
+st.success("Scaler, LabelEncoders, dan daftar model tersedia berhasil dimuat.")
 
 # Replikasi preprocessing untuk mendapatkan X_train_cols_order dan Y
 # Ini untuk memastikan konsistensi kolom dan melakukan split untuk evaluasi
@@ -107,44 +103,34 @@ y_temp = df_processed[target_column_name]
 # 3. Scaling Fitur (MinMaxScaler) - REPLIKASI URUTAN DARI NOTEBOOK ANDA
 numerical_cols_temp = X_temp.select_dtypes(include=np.number).columns
 if scaler and len(numerical_cols_temp) > 0:
+    # Error sebelumnya: NotFittedError: StandardScaler. Pastikan scaler.pkl adalah MinMaxScaler yang di-fit.
+    # Jika Anda masih mendapatkan StandardScaler di sini, itu karena scaler.pkl salah.
     X_temp[numerical_cols_temp] = scaler.transform(X_temp[numerical_cols_temp])
     st.write("Fitur numerik diskalakan menggunakan MinMaxScaler yang dimuat.")
+else:
+    st.warning("Scaler tidak dimuat atau tidak ada kolom numerik untuk diskalakan.")
+
 
 # 4. Outlier Cleansing (IQR) - REPLIKASI URUTAN DARI NOTEBOOK ANDA (setelah scaling)
-# Penting: Outlier cleansing harus menggunakan batas yang DITENTUKAN dari data training
-# Namun, dalam konteks deployment, kita tidak memiliki akses ke batas Q1/Q3 training secara langsung tanpa menyimpannya.
-# Jika IQR Anda menghapus baris, maka jumlah baris X dan y akan berubah.
-# Untuk tujuan deployment yang stabil, *idealnya* outlier cleansing adalah bagian dari proses data training
-# dan baris yang dihapus sudah final.
-
-# Jika IQR menghapus baris, maka X_train_cols_order harus berasal dari X_train final
-# yang sudah melalui IQR. Ini yang paling rumit jika IQR tidak disimpan.
-# Solusi paling robust: Lakukan IQR di notebook, dapatkan index baris yang tersisa,
-# dan gunakan index itu untuk memfilter X dan y di streamlit.
-# Namun, saya akan mengikuti logika yang memodifikasi X_temp dan y_temp.
 original_rows_count = X_temp.shape[0]
 if numerical_cols_temp.empty:
     st.info("Tidak ada kolom numerik untuk pembersihan outlier.")
 else:
     # Memfilter berdasarkan outlier pada data yang sudah diskalakan
     for col in numerical_cols_temp:
-        # PENTING: Untuk deployment, batas Q1/Q3 idealnya diambil dari data training
-        # dan disimpan/dimuat, bukan dihitung ulang dari df_processed.
-        # Namun, karena notebook Anda tidak menyimpan batas IQR, kita hitung ulang dari df_processed
-        # Ini bisa menghasilkan sedikit perbedaan jika distribusi data deployment tidak persis sama
-        # dengan data yang melatih model.
         Q1 = X_temp[col].quantile(0.25)
         Q3 = X_temp[col].quantile(0.75)
         IQR = Q3 - Q1
         lower_bound = Q1 - 1.5 * IQR
         upper_bound = Q3 + 1.5 * IQR
-        X_temp = X_temp[(X_temp[col] >= lower_bound) & (X_temp[col] <= upper_bound)]
+        
+        filter_mask = (X_temp[col] >= lower_bound) & (X_temp[col] <= upper_bound)
+        X_temp = X_temp[filter_mask]
         y_temp = y_temp.loc[X_temp.index] # Pastikan y selaras
     st.write(f"Setelah pembersihan outlier (IQR): {original_rows_count} -> {X_temp.shape[0]} baris.")
 
 
 # 5. Label Encoding (setelah outlier cleansing)
-# Gunakan encoders yang sudah di-load
 categorical_cols_for_le = ['Fuel Type', 'Transmission', 'Vehicle Class']
 available_cat_cols_for_le = [col for col in categorical_cols_for_le if col in X_temp.columns and X_temp[col].dtype == 'object']
 
@@ -153,9 +139,10 @@ if available_cat_cols_for_le:
     for col in available_cat_cols_for_le:
         if X_temp[col].isnull().any():
             X_temp[col] = X_temp[col].fillna('Missing')
-        # Gunakan encoder yang dimuat untuk transform
         X_temp[col] = encoders[col].transform(X_temp[col])
     st.write("Label Encoding berhasil diterapkan.")
+else:
+    st.info("Tidak ada kolom kategorikal yang tersedia untuk Label Encoding.")
 
 
 # Validasi kolom target (tetap sama)
@@ -165,6 +152,7 @@ if not pd.api.types.is_numeric_dtype(y_temp):
 
 # Handle inf/nan after all preprocessing (final cleanup)
 X_temp.replace([np.inf, -np.inf], np.nan, inplace=True)
+y_temp.replace([np.inf, -np.inf], np.nan, inplace=True)
 initial_rows_X = X_temp.shape[0]
 X_temp.dropna(inplace=True)
 y_temp = y_temp.loc[X_temp.index]
@@ -211,129 +199,131 @@ st.markdown("---")
 # --- 3. Model Evaluation (Sekarang hanya Muat Model) ---
 st.header("3. Evaluasi Model (Menggunakan Model yang Sudah Terlatih)")
 
-model_choice_eval = st.selectbox(
-    "Pilih Model untuk Evaluasi:",
-    ('XGBoost', 'Lasso Regression', 'Linear Regression', 'Support Vector Regressor (SVR)'),
-    key='eval_model_select'
-)
-
-# Muat model yang dipilih
-model_for_evaluation = load_trained_model(model_choice_eval)
-
-if model_for_evaluation:
-    y_pred_eval = model_for_evaluation.predict(X_test)
-    metrics = {
-        'mse': mean_squared_error(y_test, y_pred_eval),
-        'r2': r2_score(y_test, y_pred_eval),
-        'mae': mean_absolute_error(y_test, y_pred_eval),
-        'rmse': np.sqrt(mean_squared_error(y_test, y_pred_eval))
-    }
-
-    st.subheader(f"Metrik Evaluasi untuk {model_choice_eval}:")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Mean Squared Error (MSE)", f"{metrics['mse']:.4f}")
-    col2.metric("R-Squared (R2)", f"{metrics['r2']:.4f}")
-    col3.metric("Mean Absolute Error (MAE)", f"{metrics['mae']:.4f}")
-    col4.metric("Root Mean Squared Error (RMSE)", f"{metrics['rmse']:.4f}")
-    st.markdown("---")
-
-    # --- 4. Visualizations ---
-    st.header("4. Visualisasi Hasil Model")
-
-    st.subheader(f"Plot antara Fitur dan {target_column_name}")
-    feature_to_plot = st.selectbox(
-        "Pilih Fitur untuk di-plot terhadap target:",
-        options=X_final.columns.tolist(), # Gunakan X_final yang sudah diproses
-        key='feature_target_plot_select'
+if available_models: # Cek apakah ada model yang tersedia
+    model_choice_eval = st.selectbox(
+        "Pilih Model untuk Evaluasi:",
+        options=available_models,
+        key='eval_model_select'
     )
-    if feature_to_plot:
-        fig_feature_target, ax_feature_target = plt.subplots(figsize=(10, 6))
-        
-        if pd.api.types.is_numeric_dtype(X_final[feature_to_plot]):
-            sns.scatterplot(x=X_final[feature_to_plot], y=y_final, ax=ax_feature_target, alpha=0.6)
-            ax_feature_target.set_title(f"Scatter Plot: {feature_to_plot} vs {target_column_name}")
+
+    model_for_evaluation = load_trained_model(model_choice_eval)
+
+    if model_for_evaluation:
+        y_pred_eval = model_for_evaluation.predict(X_test)
+        metrics = {
+            'mse': mean_squared_error(y_test, y_pred_eval),
+            'r2': r2_score(y_test, y_pred_eval),
+            'mae': mean_absolute_error(y_test, y_pred_eval),
+            'rmse': np.sqrt(mean_squared_error(y_test, y_pred_eval))
+        }
+
+        st.subheader(f"Metrik Evaluasi untuk {model_choice_eval}:")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Mean Squared Error (MSE)", f"{metrics['mse']:.4f}")
+        col2.metric("R-Squared (R2)", f"{metrics['r2']:.4f}")
+        col3.metric("Mean Absolute Error (MAE)", f"{metrics['mae']:.4f}")
+        col4.metric("Root Mean Squared Error (RMSE)", f"{metrics['rmse']:.4f}")
+        st.markdown("---")
+
+        # --- 4. Visualizations ---
+        st.header("4. Visualisasi Hasil Model")
+
+        st.subheader(f"Plot antara Fitur dan {target_column_name}")
+        feature_to_plot = st.selectbox(
+            "Pilih Fitur untuk di-plot terhadap target:",
+            options=X_final.columns.tolist(), # Gunakan X_final yang sudah diproses
+            key='feature_target_plot_select'
+        )
+        if feature_to_plot:
+            fig_feature_target, ax_feature_target = plt.subplots(figsize=(10, 6))
+            
+            if pd.api.types.is_numeric_dtype(X_final[feature_to_plot]):
+                sns.scatterplot(x=X_final[feature_to_plot], y=y_final, ax=ax_feature_target, alpha=0.6)
+                ax_feature_target.set_title(f"Scatter Plot: {feature_to_plot} vs {target_column_name}")
+            else:
+                sns.boxplot(x=X_final[feature_to_plot], y=y_final, ax=ax_feature_target)
+                ax_feature_target.set_title(f"Box Plot: {feature_to_plot} vs {target_column_name}")
+            
+            ax_feature_target.set_xlabel(feature_to_plot)
+            ax_feature_target.set_ylabel(target_column_name)
+            st.pyplot(fig_feature_target)
+        st.markdown("---")
+
+
+        st.subheader("Aktual vs. Prediksi")
+        fig_scatter, ax_scatter = plt.subplots(figsize=(10, 6))
+        ax_scatter.scatter(y_test, y_pred_eval, alpha=0.7)
+        ax_scatter.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
+        ax_scatter.set_xlabel(f"Nilai Aktual {target_column_name}")
+        ax_scatter.set_ylabel(f"Nilai Prediksi {target_column_name}")
+        ax_scatter.set_title(f"Nilai Aktual vs. Prediksi (Test Set) - {model_choice_eval}")
+        st.pyplot(fig_scatter)
+
+        st.subheader("Plot Residual")
+        residuals = y_test - y_pred_eval
+        fig_residuals, ax_residuals = plt.subplots(figsize=(10, 6))
+        ax_residuals.scatter(y_pred_eval, residuals, alpha=0.7)
+        ax_residuals.axhline(y=0, color='r', linestyle='--', lw=2)
+        ax_residuals.set_xlabel(f"Nilai Prediksi {target_column_name}")
+        ax_residuals.set_ylabel("Residual (Aktual - Prediksi)")
+        ax_residuals.set_title(f"Plot Residual - {model_choice_eval}")
+        st.pyplot(fig_residuals)
+
+        st.subheader("Distribusi Residual")
+        fig_hist_residuals, ax_hist_residuals = plt.subplots(figsize=(10, 6))
+        sns.histplot(residuals, kde=True, ax=ax_hist_residuals)
+        ax_hist_residuals.set_xlabel("Residual")
+        ax_hist_residuals.set_ylabel("Frekuensi")
+        ax_hist_residuals.set_title(f"Distribusi Residual - {model_choice_eval}")
+        st.pyplot(fig_hist_residuals)
+
+        st.subheader("QQ-Plot Residual")
+        fig_qq, ax_qq = plt.subplots(figsize=(8, 8))
+        sm.qqplot(residuals, line='s', ax=ax_qq)
+        ax_qq.set_title(f"QQ-Plot Residual - {model_choice_eval}")
+        st.pyplot(fig_qq)
+        st.markdown("---")
+
+        if model_choice_eval == 'XGBoost':
+            st.subheader("Pentingnya Fitur (XGBoost)")
+            feature_names_for_importance = X_final.columns.tolist() 
+            if hasattr(model_for_evaluation, 'feature_importances_'):
+                importance_df = pd.DataFrame({
+                    'Feature': feature_names_for_importance,
+                    'Importance': model_for_evaluation.feature_importances_
+                }).sort_values(by='Importance', ascending=False)
+
+                fig_feature_imp, ax_feature_imp = plt.subplots(figsize=(12, 7))
+                sns.barplot(x='Importance', y='Feature', data=importance_df.head(15), ax=ax_feature_imp)
+                ax_feature_imp.set_title("15 Fitur Terpenting (XGBoost)")
+                ax_feature_imp.set_xlabel("Skor Kepentingan")
+                ax_feature_imp.set_ylabel("Fitur")
+                st.pyplot(fig_feature_imp)
+            else:
+                st.info("Atribut feature_importances_ tidak ditemukan untuk model XGBoost ini.")
         else:
-            sns.boxplot(x=X_final[feature_to_plot], y=y_final, ax=ax_feature_target)
-            ax_feature_target.set_title(f"Box Plot: {feature_to_plot} vs {target_column_name}")
-        
-        ax_feature_target.set_xlabel(feature_to_plot)
-        ax_feature_target.set_ylabel(target_column_name)
-        st.pyplot(fig_feature_target)
-    st.markdown("---")
+            st.info("Pentingnya fitur biasanya ditampilkan untuk model berbasis pohon seperti XGBoost.")
 
+        st.subheader("Contoh Nilai Aktual vs. Prediksi (Test Set)")
+        results_df = pd.DataFrame({
+            'Aktual': y_test,
+            'Prediksi': y_pred_eval,
+            'Residual': residuals
+        }).head(15)
+        st.dataframe(results_df)
 
-    st.subheader("Aktual vs. Prediksi")
-    fig_scatter, ax_scatter = plt.subplots(figsize=(10, 6))
-    ax_scatter.scatter(y_test, y_pred_eval, alpha=0.7)
-    ax_scatter.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
-    ax_scatter.set_xlabel(f"Nilai Aktual {target_column_name}")
-    ax_scatter.set_ylabel(f"Nilai Prediksi {target_column_name}")
-    ax_scatter.set_title(f"Nilai Aktual vs. Prediksi (Test Set) - {model_choice_eval}")
-    st.pyplot(fig_scatter)
-
-    st.subheader("Plot Residual")
-    residuals = y_test - y_pred_eval
-    fig_residuals, ax_residuals = plt.subplots(figsize=(10, 6))
-    ax_residuals.scatter(y_pred_eval, residuals, alpha=0.7)
-    ax_residuals.axhline(y=0, color='r', linestyle='--', lw=2)
-    ax_residuals.set_xlabel(f"Nilai Prediksi {target_column_name}")
-    ax_residuals.set_ylabel("Residual (Aktual - Prediksi)")
-    ax_residuals.set_title(f"Plot Residual - {model_choice_eval}")
-    st.pyplot(fig_residuals)
-
-    st.subheader("Distribusi Residual")
-    fig_hist_residuals, ax_hist_residuals = plt.subplots(figsize=(10, 6))
-    sns.histplot(residuals, kde=True, ax=ax_hist_residuals)
-    ax_hist_residuals.set_xlabel("Residual")
-    ax_hist_residuals.set_ylabel("Frekuensi")
-    ax_hist_residuals.set_title(f"Distribusi Residual - {model_choice_eval}")
-    st.pyplot(fig_hist_residuals)
-
-    st.subheader("QQ-Plot Residual")
-    fig_qq, ax_qq = plt.subplots(figsize=(8, 8))
-    sm.qqplot(residuals, line='s', ax=ax_qq)
-    ax_qq.set_title(f"QQ-Plot Residual - {model_choice_eval}")
-    st.pyplot(fig_qq)
-    st.markdown("---")
-
-    if model_choice_eval == 'XGBoost':
-        st.subheader("Pentingnya Fitur (XGBoost)")
-        # Karena X_final adalah DataFrame yang sudah diproses dan akan menjadi X_train
-        feature_names_for_importance = X_final.columns.tolist() 
-        if hasattr(model_for_evaluation, 'feature_importances_'):
-            importance_df = pd.DataFrame({
-                'Feature': feature_names_for_importance,
-                'Importance': model_for_evaluation.feature_importances_
-            }).sort_values(by='Importance', ascending=False)
-
-            fig_feature_imp, ax_feature_imp = plt.subplots(figsize=(12, 7))
-            sns.barplot(x='Importance', y='Feature', data=importance_df.head(15), ax=ax_feature_imp)
-            ax_feature_imp.set_title("15 Fitur Terpenting (XGBoost)")
-            ax_feature_imp.set_xlabel("Skor Kepentingan")
-            ax_feature_imp.set_ylabel("Fitur")
-            st.pyplot(fig_feature_imp)
-        else:
-            st.info("Atribut feature_importances_ tidak ditemukan untuk model XGBoost ini.")
     else:
-        st.info("Pentingnya fitur biasanya ditampilkan untuk model berbasis pohon seperti XGBoost.")
-
-    st.subheader("Contoh Nilai Aktual vs. Prediksi (Test Set)")
-    results_df = pd.DataFrame({
-        'Aktual': y_test,
-        'Prediksi': y_pred_eval,
-        'Residual': residuals
-    }).head(15)
-    st.dataframe(results_df)
+        st.warning("Model belum dimuat untuk evaluasi. Pilih model dari dropdown.")
 
 else:
-    st.warning("Model belum dimuat untuk evaluasi. Pilih model dari dropdown.")
+    st.info("Tidak ada model yang tersedia untuk evaluasi. Harap pastikan file .pkl sudah terunggah di repositori.")
 
 
 # --- 5. Make a New Prediction (Interaktif) ---
 st.markdown("---")
 st.header("5. Buat Prediksi Baru")
 
-if scaler and encoders and available_models and X_train_cols_order:
+if scaler and encoders and available_models and X_train_cols_order: # Line 336
     model_to_predict_with = st.selectbox(
         "Pilih Model untuk Prediksi Interaktif:",
         options=available_models,
@@ -386,19 +376,11 @@ if scaler and encoders and available_models and X_train_cols_order:
                 # --- Replikasi Preprocessing untuk Input Prediksi ---
 
                 # 1. Scaling Fitur (MinMaxScaler) pada input MENTAH (sebelum outlier)
-                # Pastikan input_df_raw memiliki kolom numerik yang sama dengan yang diskalakan model
                 numerical_cols_input = input_df_raw.select_dtypes(include=np.number).columns
                 if scaler and len(numerical_cols_input) > 0:
                     input_df_raw[numerical_cols_input] = scaler.transform(input_df_raw[numerical_cols_input])
                 
                 # 2. Outlier Cleansing (IQR) - Replikasikan logika ini untuk input tunggal
-                # Ini adalah bagian yang tricky. Untuk input tunggal, Anda tidak bisa
-                # menghapus baris. Anda harus memutuskan bagaimana menangani nilai yang akan menjadi outlier.
-                # Opsi: Jika nilai berada di luar batas IQR (yang sudah dihitung dari data training),
-                # Anda bisa mengklipnya ke batas tersebut atau memberi peringatan.
-                # Untuk kesederhanaan, kita akan menganggap input user ada dalam rentang wajar setelah scaling,
-                # karena IQR di data training menghapus baris, bukan mengubah nilai.
-                # Jika Anda benar-benar ingin meniru, Anda harus menyimpan batas IQR (Q1, Q3) dari data training.
                 st.warning("Penting: Pembersihan outlier (IQR) pada input tunggal tidak menghapus baris seperti pada data training. Diasumsikan input Anda berada dalam rentang yang wajar atau batas outlier akan diterapkan secara implisit oleh model setelah scaling.")
                 
                 # 3. Label Encoding
