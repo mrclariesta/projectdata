@@ -6,12 +6,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.svm import SVR
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler # Pastikan MinMaxScaler diimpor
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
 import statsmodels.api as sm
 import joblib
-import os # Pastikan ini diimpor untuk os.listdir
+import os
 
 st.set_page_config(layout="wide")
 
@@ -21,8 +21,8 @@ st.markdown("---")
 # --- GLOBAL VARIABLES & PATHS FOR PKL FILES ---
 SCALER_PATH = 'scaler.pkl'
 LABEL_ENCODERS_PATH = 'label_encoders.pkl'
-MODEL_PATH_PREFIX = 'model_' # Awalan untuk nama file model (misal: model_XGBoost.pkl)
-DATA_FILE_PATH = 'emission.csv' # Nama file CSV Anda
+MODEL_PATH_PREFIX = 'model_'
+DATA_FILE_PATH = 'emission.csv'
 
 # --- CACHED FUNCTIONS FOR LOADING RESOURCES ---
 
@@ -33,10 +33,10 @@ def load_data(path):
         return data
     except FileNotFoundError:
         st.error(f"File data tidak ditemukan di: {path}. Harap pastikan file ada di repositori.")
-        st.stop() # Hentikan eksekusi jika file tidak ditemukan
+        st.stop()
     except Exception as e:
         st.error(f"Terjadi kesalahan saat memuat file: {e}")
-        st.stop() # Hentikan eksekusi jika ada error lain
+        st.stop()
 
 @st.cache_resource
 def load_preprocessors_and_available_models(scaler_path, encoders_path, model_prefix):
@@ -45,11 +45,9 @@ def load_preprocessors_and_available_models(scaler_path, encoders_path, model_pr
     available_models_list = []
 
     try:
-        # Coba muat scaler dan encoders
         loaded_scaler = joblib.load(scaler_path)
         loaded_label_encoders = joblib.load(encoders_path)
         
-        # Cari file model .pkl yang tersedia di direktori
         for f in os.listdir('.'):
             if f.startswith(model_prefix) and f.endswith('.pkl'):
                 available_models_list.append(f.replace(model_prefix, '').replace('.pkl', ''))
@@ -60,14 +58,14 @@ def load_preprocessors_and_available_models(scaler_path, encoders_path, model_pr
         return loaded_scaler, loaded_label_encoders, available_models_list
     except FileNotFoundError:
         st.error("File preprocessor (.pkl) tidak ditemukan. Harap pastikan Anda telah melatih model secara offline dan mengunggah file .pkl ke repositori.")
-        st.stop() # Hentikan eksekusi jika file tidak ditemukan
+        st.stop()
     except Exception as e:
         st.error(f"Error memuat sumber daya: {e}. Pastikan file .pkl tidak rusak atau ada masalah kompatibilitas (periksa log untuk InconsistentVersionWarning).")
-        st.stop() # Hentikan eksekusi jika ada error lain
+        st.stop()
 
 @st.cache_resource
-def load_trained_model(model_name, model_prefix_path): # Tambahkan model_prefix_path sebagai argumen
-    model_path = f"{model_prefix_path}{model_name.replace(' ', '_')}.pkl" # Menggunakan model_prefix_path yang diteruskan
+def load_trained_model(model_name, model_prefix_path):
+    model_path = f"{model_prefix_path}{model_name.replace(' ', '_')}.pkl"
     try:
         if os.path.exists(model_path):
             model = joblib.load(model_path)
@@ -80,18 +78,16 @@ def load_trained_model(model_name, model_prefix_path): # Tambahkan model_prefix_
         st.stop()
 
 # --- Load Preprocessors and Available Models (Dilakukan sekali di awal aplikasi) ---
-# Variabel 'scaler', 'encoders', dan 'available_models' akan tersedia secara global setelah ini.
 scaler, encoders, available_models = load_preprocessors_and_available_models(SCALER_PATH, LABEL_ENCODERS_PATH, MODEL_PATH_PREFIX)
 
 # Variabel ini akan menyimpan urutan kolom X_train setelah preprocessing
-# Penting untuk prediksi interaktif
 X_train_cols_order = [] 
 
 # --- 1. Data Loading & Preprocessing ---
 st.header("1. Data Loading & Preprocessing")
 
 df = load_data(DATA_FILE_PATH)
-df_original = df.copy() # Untuk EDA yang menggunakan data asli
+df_original = df.copy()
 
 # --- Pilihan Kolom Target ---
 target_column_name = 'CO2 Emissions(g/km)' 
@@ -108,7 +104,7 @@ if 'Make' in df.columns and target_column_name in df.columns:
     num_common_makes = st.slider(
         "Pilih jumlah merek mobil paling umum yang akan ditampilkan:",
         min_value=5,
-        max_value=min(25, df['Make'].nunique()),
+        max_value=min(25, df_original['Make'].nunique()),
         value=10,
         step=1,
         key='make_slider'
@@ -167,18 +163,15 @@ else:
     st.info("Tidak ada fitur kategorikal asli yang ditemukan atau kolom target hilang untuk visualisasi kategori vs target.")
 
 
-# --- Bagian Data Preprocessing (untuk mendapatkan X_train_cols_order dan data yang siap untuk evaluasi) ---
-# Bagian ini HARUS mereplikasi persis alur preprocessing dari notebook Anda
-# Termasuk urutan MinMaxScaler sebelum Outlier Cleansing
+# --- Bagian Data Preprocessing (untuk mendapatkan X_train_cols_order) ---
 st.subheader("Detail Preprocessing Data (Berdasarkan model yang dilatih offline)")
 
-# Replikasi preprocessing untuk mendapatkan X_final dan y_final yang siap untuk split dan visualisasi
 df_processed = df.copy()
 
-# 1. Penghapusan Kolom Awal (sesuai notebook, HANYA model, make)
-# Karena kolom Fuel Consumption digunakan sebagai fitur, JANGAN HAPUS DI SINI
+# 1. Penghapusan Kolom Awal (sesuai notebook, HANYA Model, Make)
+# Kolom Fuel Consumption DIJAGA agar menjadi fitur
 columns_to_drop = [
-    'Model', 'Make' # Fuel Consumption columns DIJAGA agar jadi fitur
+    'Model', 'Make'
 ]
 df_processed = df_processed.drop(columns=[col for col in columns_to_drop if col in df_processed.columns], errors='ignore')
 st.write(f"Kolom yang dihapus dari data mentah: {columns_to_drop}")
@@ -210,8 +203,7 @@ original_rows_count = X_temp.shape[0]
 if numerical_cols_temp.empty:
     st.info("Tidak ada kolom numerik untuk pembersihan outlier.")
 else:
-    # Memfilter berdasarkan outlier pada data yang sudah diskalakan
-    for col in numerical_cols_temp: # Iterasi hanya pada kolom numerik yang diskalakan
+    for col in numerical_cols_temp:
         Q1 = X_temp[col].quantile(0.25)
         Q3 = X_temp[col].quantile(0.75)
         IQR = Q3 - Q1
@@ -220,7 +212,7 @@ else:
         
         filter_mask = (X_temp[col] >= lower_bound) & (X_temp[col] <= upper_bound)
         X_temp = X_temp[filter_mask]
-        y_temp = y_temp.loc[X_temp.index] # Selaraskan y
+        y_temp = y_temp.loc[X_temp.index]
     st.write(f"Setelah pembersihan outlier (IQR): {original_rows_count} -> {X_temp.shape[0]} baris.")
 
 
@@ -229,11 +221,10 @@ st.write("\nMelakukan Label Encoding...")
 categorical_cols_for_le = ['Fuel Type', 'Transmission', 'Vehicle Class']
 available_cat_cols_for_le = [col for col in categorical_cols_for_le if col in X_temp.columns and X_temp[col].dtype == 'object']
 
-if encoders and available_cat_cols_for_le: # Pastikan encoders dimuat dan ada kolom kategorikal
+if encoders and available_cat_cols_for_le:
     for col in available_cat_cols_for_le:
         if X_temp[col].isnull().any():
             X_temp[col] = X_temp[col].fillna('Missing')
-        # Gunakan encoder yang dimuat untuk transform
         X_temp[col] = encoders[col].transform(X_temp[col])
     st.write(f"Label Encoding berhasil diterapkan pada {available_cat_cols_for_le}.")
 elif not encoders:
@@ -256,7 +247,6 @@ y_temp = y_temp.loc[X_temp.index]
 if X_temp.shape[0] < initial_rows_X:
     st.warning(f"Menghapus {initial_rows_X - X_temp.shape[0]} baris mengandung NaN/Inf setelah preprocessing akhir.")
 
-# X_final dan y_final untuk train-test split dan visualisasi
 X_final = X_temp
 y_final = y_temp
 
@@ -421,7 +411,7 @@ st.markdown("---")
 st.header("5. Buat Prediksi Baru")
 
 # Periksa apakah scaler, encoders, dan ada model yang tersedia untuk prediksi
-if scaler is not None and encoders is not None and available_models and X_train_cols_order:
+if scaler is not None and encoders is not None and available_models and X_train_cols_order: # Line 336
     model_to_predict_with = st.selectbox(
         "Pilih Model untuk Prediksi Interaktif:",
         options=available_models,
@@ -507,8 +497,7 @@ if scaler is not None and encoders is not None and available_models and X_train_
                     if col in input_df_raw.columns:
                         final_input_df[col] = input_df_raw[col]
                     else:
-                        # Mengisi kolom yang tidak diinput dengan 0 atau rata-rata dari training data
-                        final_input_df[col] = 0 
+                        final_input_df[col] = 0 # Default untuk fitur yang tidak diinput
                 
                 # Lakukan prediksi
                 prediction = loaded_model_predict.predict(final_input_df)
