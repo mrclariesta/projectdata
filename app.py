@@ -19,13 +19,13 @@ st.title("Vehicle Emission Prediction Dashboard")
 st.markdown("Dibuat oleh: Marcel Ariesta")
 st.markdown("---")
 
-# --- GLOBAL VARIABLES & PATHS FOR PKL FILES ---
+# --- PATH DAN VARIABEL ---
 SCALER_PATH = 'scaler.pkl'
 LABEL_ENCODERS_PATH = 'label_encoders.pkl'
 MODEL_PATH_PREFIX = 'model_'
 DATA_FILE_PATH = 'emission.csv'
 
-# --- CACHED FUNCTIONS FOR LOADING RESOURCES ---
+# --- CACHED FUNCTIONS UNTUK LOADING RESOURCES ---
 
 @st.cache_data
 def load_data(path):
@@ -85,13 +85,12 @@ df = load_data(DATA_FILE_PATH)
 df_original = df.copy()
 target_column_name = 'CO2 Emissions(g/km)' 
 
-### BAGIAN DATA LOADING DITAMBAHKAN KEMBALI ###
 st.subheader("Tampilan Awal Data")
 st.info(f"Data dari '{DATA_FILE_PATH}' berhasil dimuat. Menampilkan 5 baris pertama:")
 st.dataframe(df.head())
 st.markdown("---")
 
-### PLOT DISTRIBUSI CO2 DITAMBAHKAN KEMBALI ###
+### PLOT DISTRIBUSI CO2 DITAMBAHKAN ###
 st.subheader(f"Distribusi Emisi CO2")
 fig_dist_co2, ax_dist_co2 = plt.subplots(figsize=(10, 6))
 sns.histplot(df_original[target_column_name], kde=True, ax=ax_dist_co2, bins=30)
@@ -129,7 +128,7 @@ st.pyplot(fig_corr)
 st.markdown("---")
 
 
-# --- 2. Preprocessing & Splitting (Proses Latar Belakang) ---
+# --- 2. Preprocessing & Splitting (Proses Berjalan di Latar Belakang) ---
 df_processed = df.copy()
 columns_to_drop = ['Model', 'Make']
 df_processed = df_processed.drop(columns=[col for col in columns_to_drop if col in df_processed.columns], errors='ignore')
@@ -158,7 +157,7 @@ y_final = y_temp
 X_train, X_test, y_train, y_test = train_test_split(X_final, y_final, test_size=0.2, random_state=42)
 X_train_cols_order = X_train.columns.tolist()
 
-# --- 3. Model Evaluation ---
+# --- 3. Evaluasi Model ---
 st.header("3. Evaluasi Model")
 
 if available_models:
@@ -230,7 +229,7 @@ else:
     st.info("Tidak ada model yang tersedia untuk evaluasi. Harap pastikan file .pkl sudah terunggah.")
 st.markdown("---")
 
-# --- 5. Buat Prediksi Baru (Interaktif) ---
+# --- 5. Buat Prediksi Baru (UI Interaktif) ---
 st.header("5. Buat Prediksi Baru")
 
 if scaler and encoders and available_models and X_train_cols_order:
